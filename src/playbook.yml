@@ -1,0 +1,123 @@
+---
+- name: Install and configure PostgreSQL
+  hosts: servers
+  gather_facts: yes
+  vars:
+    postgres_version: 15
+    postgres_data_dir: /var/lib/pgsql/data
+    pg_privileges: "CREATEDB,LOGIN"
+
+  tasks:
+    - name: Get server load
+      shell: uptime | awk '{print $10}'
+      register: load_avg
+      changed_when: false
+
+    - name: Set load average fact
+      set_fact:
+        server_load: "{{ (load_avg.stdout | replace(',', '.') | float * 100) | int }}" 
+
+    - name: output
+      debug: 
+        msg: "server load = {{ server_load }}"
+
+    - name: Find server with lowest load
+      set_fact:
+        target_server: "{{ ansible_play_hosts | map('extract', hostvars) | list | min(attribute='server_load') }}"
+        student_server: "{{ ansible_play_hosts | map('extract', hostvars) | list | max(attribute='server_load') }}"
+      run_once: true
+
+    - name: Install PostgreSQL on target server
+      block:
+        - name: Install PostgreSQL on Debian
+          when: ansible_os_family == "Debian"
+          apt:
+            name:
+              - "postgresql"
+              - "postgresql-contrib"
+              - "python3-psycopg2"
+            state: present
+            update_cache: yes
+
+        - name: Install PostgreSQL on CentOS/AlmaLinux
+          when: ansible_os_family == "RedHat"
+          dnf:
+            name:
+              - "postgresql-server"
+              - "postgresql-contrib"
+              - "python3-psycopg2"
+            state: present
+
+        - name: Ensure data directory exists
+          file:
+            path: "{{ postgres_data_dir }}"
+            state: directory
+            owner: postgres
+            group: postgres
+            mode: '0700'
+
+        - name: Initialize PostgreSQL data directory as postgres user
+          become: false
+          command: su - postgres -c "/usr/bin/postgresql-setup --initdb"
+          when: ansible_os_family == "RedHat"
+
+        - name: Initialize PostgreSQL data directory as postgres user
+          become: false
+          command: su - postgres -c "/usr/lib/postgresql/{{ postgres_version }}/bin/initdb -D {{ postgres_data_dir }}"
+          when: ansible_os_family == "Debian"   
+         
+        - name: Enable and start PostgreSQL service
+          systemd:
+            name: "postgresql"
+            enabled: yes
+            state: started
+
+        - name: Configure PostgreSQL to listen on all interfaces
+          lineinfile:
+            path: "{% if ansible_os_family == 'Debian' %}/etc/postgresql/{{ postgres_version }}/main/postgresql.conf{% else %}/var/lib/pgsql/data/postgresql.conf{% endif %}"
+            regexp: '^#?listen_addresses\s*='
+            line: "listen_addresses = '*'"
+          notify: restart postgresql
+
+        - name: Configure pg_hba.conf for external connections
+          blockinfile:
+            path: "{% if ansible_os_family == 'Debian' %}/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf{% else %}/var/lib/pgsql/data/pg_hba.conf{% endif %}"  
+            block: |
+              host    all    all    0.0.0.0/0    md5
+              host    all    student    {{ student_server.inventory_hostname}}  md5
+            marker: "# {mark} ANSIBLE MANAGED BLOCK"
+          notify: restart postgresql
+
+        - name: Create student user
+          become: yes
+          become_user: postgres
+          community.postgresql.postgresql_user:
+            name: student
+            password: 
+            role_attr_flags: "{{ pg_privileges }}"
+            login_user: postgres  # Connects as postgres DB user
+            login_password: ""    # Empty if peer auth ident is configured
+            login_unix_socket: "/var/run/postgresql"  
+
+        - name: Test database connection
+          postgresql_query:
+            db: postgres
+            query: SELECT 1
+          become: yes
+          become_user: postgres
+          register: test_query
+
+        - name: Display installation status
+          debug:
+            msg: |
+              PostgreSQL installed on {{ inventory_hostname }} (load: {{ server_load }}).
+              Student access restricted to {{ student_server.inventory_hostname }} (load: {{ student_server.server_load }}).
+              Test query result: {{ test_query.query_result }}
+
+      when: inventory_hostname == target_server.inventory_hostname
+
+  handlers:
+    - name: restart postgresql
+      systemd:
+        name: "postgresql"
+        state: restarted
