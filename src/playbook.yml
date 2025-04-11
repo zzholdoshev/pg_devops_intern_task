@@ -6,13 +6,20 @@
     postgres_version: 15
     postgres_data_dir: /var/lib/pgsql/data
     pg_privileges: "CREATEDB,LOGIN"
+    student_password:  !vault | 
+      $ANSIBLE_VAULT;1.1;AES256
+      37316564316635353132616438386265366362373435363334623261343331356531383838383635
+      6439613835656234643438386561663662656234373037300a343562303438643066656664616535
+      34666165303865646238333564376564613162633966393662343339386537636138353630343939
+      6665333737326137390a623961336431323636353833313239376636636337346164343762326438
+      34346163376533343762396334656366393662643539663431393331386433303232
 
   tasks:
     - name: Get server load
       shell: uptime | awk '{print $10}'
       register: load_avg
       changed_when: false
-
+    
     - name: Set load average fact
       set_fact:
         server_load: "{{ (load_avg.stdout | replace(',', '.') | float * 100) | int }}" 
@@ -24,7 +31,11 @@
     - name: Find server with lowest load
       set_fact:
         target_server: "{{ ansible_play_hosts | map('extract', hostvars) | list | min(attribute='server_load') }}"
-        student_server: "{{ ansible_play_hosts | map('extract', hostvars) | list | max(attribute='server_load') }}"
+      run_once: true
+
+    - name: Determine student server
+      set_fact:
+        student_server: "{{ (ansible_play_hosts | map('extract', hostvars) | rejectattr('inventory_hostname', 'match', target_server.inventory_hostname) | list | first) }}"
       run_once: true
 
     - name: Install PostgreSQL on target server
@@ -79,12 +90,13 @@
             line: "listen_addresses = '*'"
           notify: restart postgresql
 
-        - name: Configure pg_hba.conf for external connections
+        - name: Configure pg_hba.conf for external connections  # allow student login only from student_server
           blockinfile:
             path: "{% if ansible_os_family == 'Debian' %}/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf{% else %}/var/lib/pgsql/data/pg_hba.conf{% endif %}"  
             block: |
+              host    all    student    {{ student_server.inventory_hostname}}/32  md5 
+              host    all    student          0.0.0.0/0                       reject
               host    all    all    0.0.0.0/0    md5
-              host    all    student    {{ student_server.inventory_hostname}}  md5
             marker: "# {mark} ANSIBLE MANAGED BLOCK"
           notify: restart postgresql
 
@@ -93,10 +105,10 @@
           become_user: postgres
           community.postgresql.postgresql_user:
             name: student
-            password: 
+            password: "{{ student_password }}"
             role_attr_flags: "{{ pg_privileges }}"
             login_user: postgres  # Connects as postgres DB user
-            login_password: ""    # Empty if peer auth ident is configured
+            login_password: ""    # Empty if peer auth ident is configured (configured by default)
             login_unix_socket: "/var/run/postgresql"  
 
         - name: Test database connection

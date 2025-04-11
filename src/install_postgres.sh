@@ -18,7 +18,7 @@ for server in "${servers[@]}"; do
 done
 
 # Run Ansible playbook
-ansible-playbook -i "$INVENTORY_FILE" playbook.yml
+ansible-playbook -i "$INVENTORY_FILE" playbook.yml --ask-vault-pass
 
 # Clean up
 rm "$INVENTORY_FILE"
