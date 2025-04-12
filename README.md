@@ -1,2 +1,15 @@
 # pg_devops_intern_task
-solution for Postgres Pro's task for interns
+## Solution for Postgres Pro's task for interns
+* Решение этого задания в папке src ветки develop. Было принято решение использовать bash + ansible.
+* Пароль от ansible vault - `PostgresProForeverAndEver!#()@hehe`. С помощью него зашифрован пароль юзера student в postgres.
+* Для удобства тестирования создан Vagrantfile с двумя виртуальными машинами - debian, almalinux. Для обхода блокировок российских ip при загрузке боксов используется tor + proxychians (после загрузки боксов нужно прервать proxychians, иначе vagrant не сможет соединиться с машинами):
+![](./images/image_1.png)
+* выполнение программы и запуск playbook:
+![](./images/image_2.png)
+![](./images/image_3.png)
+* в конце выполнения playbook отображается вывод запроса SELECT 1 вместе с остальной информацией:
+![](./images/image_4.png)
+* по условию задачи, постгрес принимает соединения, подключаемся к юзеру postgres. К юзеру student подключиться с хоста не можем, как и задумано:
+![](./images/image_5.png)
+* подключаеся к student со второй виртуальной машины:
+![](./images/image_6.png)
