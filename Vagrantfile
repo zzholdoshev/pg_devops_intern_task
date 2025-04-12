@@ -16,7 +16,7 @@ Vagrant.configure("2") do |config|
     config.ssh.username = "vagrant"
     config.vm.provision "shell", inline: <<-SHELL
       # Allow root login via SSH
-      sudo sed -i 's/^#PermitRootLogin prohibit-passwrd/PermitRootLogin yes/' /etc/ssh/sshd_config
+      sudo sed -i 's/^#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
       sudo mkdir -p /root/.ssh
       echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIi46Z0ofC93ULZpshoamFwYBjpCSRT6Lei2x/Q4NbYk daniyar@daniyar-hppro3500series" >> /root/.ssh/authorized_keys
     SHELL
